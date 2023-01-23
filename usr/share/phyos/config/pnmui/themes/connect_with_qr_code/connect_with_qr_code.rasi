@@ -58,7 +58,7 @@ mainbox {
 imagebox {
     border-radius:               20px;
     background-color:            transparent;
-    background-image:            url("./.cache/qr_codes/qr_code_FSOCIETY_fcme.png", height);
+    background-image:            url("/var/lib/PhynetManager/qr_codes/qr_code_FSOCIETY_qetL.png", height);
 }
 
 /*****----- Inputbar

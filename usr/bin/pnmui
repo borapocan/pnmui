@@ -1,8 +1,9 @@
 #!/bin/sh
 
 # Import current theme
-source "/home/mrrobot/.local/src/pnmui/themes.config";
-DIR="$(pwd)";
+
+DIR="$pOS_CONFIG_DIR/pnmui";
+source "$DIR/themes.config";
 main_theme="$themes/$style"; #/home/mrrobot/.local/src/pnmui
 edit_connection_theme="$DIR/themes/edit_connection/edit_connection.rasi";
 edit_connection_add_theme="$DIR/themes/edit_connection/edit_connection_add.rasi";
@@ -12,6 +13,8 @@ connect_with_qr_code_theme="$DIR/themes/connect_with_qr_code/connect_with_qr_cod
 set_system_hostname_theme="$DIR/themes/set_system_hostname/set_system_hostname.rasi";
 list_ports_theme="$DIR/themes/list_ports/list_ports.rasi";
 system_connections_folder="/etc/PhynetManager/system-connections";
+cache_path="/var/lib/PhynetManager";
+mkdir -p "${cache_path}/qr_codes" 2>/dev/null;
 
 option_1="Edit a connection";
 option_2="Activate an connection";
@@ -30,8 +33,8 @@ wired_connection_interface="";
 connected_network=""
 
 [ $UID -ne 0 ] && echo "Please run script as root..." && exit 1;
-[[ -s ./.cache/scanned_ssids ]] && > ./.cache/scanned_ssids;
-[[ -s ./.cache/connected_ssids ]] && > ./.cache/connected_ssids;
+[[ -s "${cache_path}/scanned_ssids" ]] && >  "${cache_path}/scanned_ssids";
+[[ -s "${cache_path}/connected_ssids" ]] && > "${cache_path}/connected_ssids";
 
 # Main menu
 function menu() {
@@ -43,15 +46,11 @@ function menu() {
 # OPTION 1
 function edit_connection() {
 
-    [ -s ./.cache/scanned_ssids ] && rm -rf ./.cache/scanned_ssids;
-
-    echo "<Add>" > ./.cache/connected_ssids;
-
-    grep -R 'ssid=' /etc/PhynetManager/system-connections | cut -d '=' -f2 | sort | uniq >> ./.cache/connected_ssids;
-
-    echo "<Back>" >> ./.cache/connected_ssids;
-
-    cat ./.cache/connected_ssids | rofi -dmenu -theme ${edit_connection_theme};
+    [ -s "${cache_path}/connected_ssids" ] && rm -rf "${cache_path}/scanned_ssids";
+    echo "<Add>" > ${cache_path}/connected_ssids;
+    grep -R 'ssid=' /etc/PhynetManager/system-connections | cut -d '=' -f2 | sort | uniq >> "${cache_path}/connected_ssids";
+    echo "<Back>" >> "${cache_path}/connected_ssids";
+    cat "${cache_path}/connected_ssids" | rofi -dmenu -theme ${edit_connection_theme};
 
 }
 
@@ -74,25 +73,19 @@ function edit_connection_edit() {
 # OPTION 2
 function activate_connection() {
 
-    [ -s ./.cache/scanned_ssids ] && rm -rf ./.cache/scanned_ssids;
-
-    iw dev "${wireless_connection_interface}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' > ./.cache/scanned_ssids;
-
+    [ -s "${cache_path}/scanned_ssids" ] && rm -rf "${cache_path}/scanned_ssids";
+    iw dev "${wireless_connection_interface}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' > "${cache_path}/scanned_ssids";
     local state="$(iwconfig 2>/dev/null | grep -oP "(?<=ESSID:).*")";
-
     if [[ "${state}" != "off/any" ]]; then
 
         connected_network="$(iwconfig 2>/dev/null | grep -oP '(?<=ESSID:).*' | tr -d '"')";
-
-        sed -i "1s/^/Connected:${connected_network}\n/" ./.cache/scanned_ssids 2>/dev/null;
+        sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids" 2>/dev/null;
 
     fi
 
-     echo "<Back>" >> ./.cache/scanned_ssids;
-
-     sed -i 's|^[ \t]*||' ./.cache/ssid_scans.pm 2>/dev/null;
-
-     cat ./.cache/scanned_ssids | rofi -window-title "Activate a connection" -dmenu -theme ${activate_connection_theme};
+     echo "<Back>" >> "${cache_path}/scanned_ssids";
+     sed -i 's|^[ \t]*||' "${cache_path}/scanned_ssids" 2>/dev/null;
+     cat "${cache_path}/scanned_ssids" | rofi -window-title "Activate a connection" -dmenu -theme ${activate_connection_theme};
 
 }
 
@@ -106,13 +99,15 @@ function manually_actiavate_connection() {
 # OPTION 4
 function connect_with_QR_Code() {
 
-    local SSID=$(iwconfig 2>/dev/null | grep -oP 'ESSID:"\K\w+');
+    local SSID="$(iwconfig 2>/dev/null | grep -oP "(?<=ESSID:).*" | tr -d '"')";
+
+    local ssid_path="$(grep -r "ssid=${ssid}" "/etc/PhynetManager/system-connections" | cut -d ':' -f1)";
+
+    local PSK="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
 
     local Security="WPA";
 
-    local PSK="bin bash Mr.Robot666";
-
-    RANDOM_QR_FILE="$(mktemp ./.cache/qr_codes/qr_code_${SSID}_XXXX.png)";
+    RANDOM_QR_FILE="$(mktemp -q '${cache_path}/qr_codes/qr_code_${SSID}_XXXX.png')";
 
     qrencode -t png "WIFI:T:${Security};S:${SSID};P:${PSK};;" -o $RANDOM_QR_FILE;
 
@@ -142,7 +137,9 @@ function connect_with_QR_Code() {
 # OPTION 5
 function set_system_hostname() {
 
-    echo -e "Back" | rofi -dmenu -theme ${set_system_hostname_theme} 1> /etc/hostname;
+
+    rofi -dmenu -theme ${set_system_hostname_theme} 1> /etc/hostname;
+
 
 }
 
@@ -181,7 +178,7 @@ function ssh_launcher() {
 
 chosen="$(menu)";
 
-case ${chosen} in
+case "${chosen}" in
 
     $option_1)
 
