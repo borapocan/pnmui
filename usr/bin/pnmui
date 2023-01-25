@@ -28,13 +28,26 @@ option_9="List all available interfaces";
 option_10="SSH launcher";
 option_11="Exit";
 
-wireless_connection_interface=$(iw dev | grep -oP "Interface \K\w+");
-wired_connection_interface="";
-connected_network=""
-
 [ $UID -ne 0 ] && echo "Please run script as root..." && exit 1;
-[[ -s "${cache_path}/scanned_ssids" ]] && >  "${cache_path}/scanned_ssids";
+[[ -s "${cache_path}/activate_connection" ]] && > "${cache_path}/activate_connection";
 [[ -s "${cache_path}/connected_ssids" ]] && > "${cache_path}/connected_ssids";
+
+network_interfaces=($(ls /sys/class/net));
+wireless_interfaces=();
+wired_interfaces=();
+connected_wireless_network="";
+connected_wired_network="";
+connected_wireless_adapter_network="";
+
+for interface in "${network_interfaces[@]}"; do
+    if [[ "${interface}" =~ "en" ]] || [[ "${interface}" =~ "et" ]]; then
+        wired_interfaces+=("${interface}");
+    elif [[ "${interface}" =~ "wl" ]]; then
+        wireless_interfaces+=("${interface}")
+    else
+        continue;
+    fi
+done
 
 # Main menu
 function menu() {
@@ -45,11 +58,23 @@ function menu() {
 # OPTION 1
 function edit_connection() {
 
-    [ -s "${cache_path}/connected_ssids" ] && rm -rf "${cache_path}/scanned_ssids";
-    echo "<Add>" > ${cache_path}/connected_ssids;
+    [ -s "${cache_path}/connected_ssids" ] && rm -rf "${cache_path}/connected_ssids";
+    echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids";
+    for wired in "${wired_interfaces[@]}"; do
+        no=1;
+        if [ "$(cat /sys/class/net/${wired}/carrier)" == "1" ]; then
+            echo "Connected: Wired Connection ${no}" >> "${cache_path}/connected_ssids";
+            no=$((no+1));
+        else
+            echo "Wired Connection ${no}" >> "${cache_path}/connected_ssids" 2>/dev/null;
+        fi
+    done
+    echo -en "***** Wireless *****\n<Add>\n" >> ${cache_path}/connected_ssids;
     grep -R 'ssid=' /etc/PhynetManager/system-connections | cut -d '=' -f2 | sort | uniq >> "${cache_path}/connected_ssids";
     echo "<Back>" >> "${cache_path}/connected_ssids";
-    cat "${cache_path}/connected_ssids" | rofi -dmenu -theme ${edit_connection_theme};
+    cat "${cache_path}/connected_ssids" > "${cache_path}/edit_connection"
+    cat "${cache_path}/connected_ssids" | rofi -window-title "Edit a connection" -dmenu -theme ${edit_connection_theme};
+
 }
 
 # OPTION 1-1
@@ -58,30 +83,61 @@ function edit_connection_add() {
     echo -e "DSL\nEthernet\nInfiniBand\nWi-Fi\nBond\nBridge\nIP Tunnel\nTeam\nVeth\nWireGuard\n<Cancel>" | rofi -window-title "New Connection" -dmenu -theme ${edit_connection_add_theme};
 }
 
-# OPTION 1-2
-function edit_connection_edit() {
-
-    #echo -e "DSL\nEthernet\nInfiniBand\nWi-Fi\nBond\nBridge\nIP Tunnel\nTeam\nVeth\nWireGuard\n<Cancel>" | rofi -window-title "New Connection" -dmenu -theme ${edit_connection_add_theme};
-    echo "Not applied yet";
-}
-
-
 # OPTION 2
 function activate_connection() {
 
-    [ -s "${cache_path}/scanned_ssids" ] && rm -rf "${cache_path}/scanned_ssids";
-    iw dev "${wireless_connection_interface}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' > "${cache_path}/scanned_ssids";
+    [ -s "${cache_path}/connected_ssids_ethernet" ] && rm -rf "${cache_path}/connected_ssids_ethernet";
+    [ -s "${cache_path}/scanned_ssids_wifi" ] && rm -rf "${cache_path}/scanned_ssids_wifi";
+    [ -s "${cache_path}/scanned_ssids_adapter" ] && rm -rf "${cache_path}/scanned_ssids_adapter";
+    [ -s "${cache_path}/activate_connection" ] && rm -rf "${cache_path}/activate_connection";
+
+    echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids_ethernet";
+
+    for wired in "${wired_interfaces[@]}"; do
+        no=1;
+        if [ "$(cat /sys/class/net/${wired}/carrier)" == "1" ]; then
+            echo "Connected: Wired Connection ${no}" >> "${cache_path}/connected_ssids_ethernet";
+            no=$((no+1));
+        else
+            echo "Wired Connection ${no}" >> "${cache_path}/connected_ssids_ethernet" 2>/dev/null;
+        fi
+    done
+
+    for wireless in "${wireless_interfaces[@]}"; do
+        if [[ "${wireless}" =~ "wlo" ]] || [[ "${wireless}" =~ "wlan" ]]; then
+            iw dev "${wireless}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
+        fi
+    done
+
     local state="$(iwconfig 2>/dev/null | grep -oP "(?<=ESSID:).*")";
     if [[ "${state}" != "off/any" ]]; then
 
         connected_network="$(iwconfig 2>/dev/null | grep -oP '(?<=ESSID:).*' | tr -d '"')";
-        sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids" 2>/dev/null;
+        sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
+        sed -i "1s/^/***** Wi-Fi *****\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
 
+    else
+        if [[ "${wireless_interfaces[@]}" =~ "wlo" ]] || [[ "${wireless_interfaces[@]}" =~ "wlan" ]]; then
+            #echo "***** Wi-Fi *****" > "${cache_path}/scanned_ssids_wifi";
+            sed -i "1s/^/***** Wi-Fi *****\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
+        fi
     fi
 
-     echo "<Back>" >> "${cache_path}/scanned_ssids";
-     sed -i 's|^[ \t]*||' "${cache_path}/scanned_ssids" 2>/dev/null;
-     cat "${cache_path}/scanned_ssids" | rofi -window-title "Activate a connection" -dmenu -theme ${activate_connection_theme};
+    if [[ "${wireless_interfaces[@]}" =~ "wlp" ]]; then
+        echo "***** USB Wi-Fi *****" > "${cache_path}/scanned_ssids_adapter";
+    fi
+
+    for wireless in "${wireless_interfaces[@]}"; do
+        if [[ "${wireless}" =~ "wlp" ]]; then
+            iw dev "${wireless}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter" 2>/dev/null;
+        fi
+    done
+
+    #iw dev "${wireless_connection_interface}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' > "${cache_path}/scanned_ssids";
+    cat "${cache_path}/connected_ssids_ethernet" "${cache_path}/scanned_ssids_wifi" "${cache_path}/scanned_ssids_adapter" > "${cache_path}/activate_connection" 2>/dev/null;
+    echo "<Back>" >> "${cache_path}/activate_connection";
+    sed -i 's|^[ \t]*||' "${cache_path}/activate_connection" 2>/dev/null;
+    cat "${cache_path}/activate_connection" | rofi -window-title "Activate a connection" -dmenu -theme ${activate_connection_theme};
 }
 
 # OPTION 3
@@ -207,6 +263,18 @@ case "${chosen}" in
 
             ;;
 
+            "***** Wired *****")
+
+                edit_connection;
+
+            ;;
+
+            "***** Wireless *****")
+
+                edit_connection;
+
+            ;;
+
             *Add*)
 
                 network_type="$(edit_connection_add)";
@@ -308,7 +376,21 @@ case "${chosen}" in
 
                         *Edit*)
 
-                            echo "Test";
+                            ethernet=($(sed -n '/Wired/,/Wireless/p' /var/lib/PhynetManager/edit_connection));
+                            profile_name="${ssid}";
+                            used_wired_interface="$(ip -br l | awk '$1 !~ "lo|vir|wl" { print $1}')";
+                            device="${used_wired_interface} $(cat /sys/class/net/${used_wired_interface}/address)";
+                            cloned_mac_address=""; mtu=""; ipv4_conf="<Automatic>"; addresses_ipv4="<Add...>";
+                            gateway_ipv4=""; dns_servers_ipv4="<Add...>"; search_domains_ipv4="<Add...>"; routing_ipv4="(No customm rules)";
+                            ipv6_conf="<Automatic>"; addresses_ipv6="<Add...>";gateway_ipv6=""; dns_servers_ipv6="<Add...>";
+                            search_domains_ipv6="<Add...>"; routing_ipv6="(No customm rules)";
+
+                            if [[ "${used_wired_interface}" =~ "${wireless_connection_interface[@]}" ]]; then
+
+                                echo -e "Profile Name: ${profile_name}\nDevice:${device}\nClone MAC Address:\nMTU:${mtu}\nIPv4 CONFIGURATION ${ipv4_conf}\n<Hide>\nAddresses ${addresses}\nGateway:${gateway}\nDNS Servers ${dns_servers}\nSearch domains: ${search_domains}\nRouting: ${routing}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv4 addressing for this connection\nIPv6 CONFIGURATION ${ipv6_conf}\n<Hide>\nAddresses ${addresses_ipv6}\nGateway:${gateway_ipv6}\nDNS Servers ${dns_servers_ipv6}\nSearch domains: ${search_domains_ipv6}\nRouting: ${routing_ipv6}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv6 addressing for this connection\n[X] Automatically connect\n[X] Available to all users\n<OK>\n<Cancel>" | rofi -dmenu -theme ${edit_connection_theme};
+
+                            fi
+
                             exec "$0";
 
                         ;;

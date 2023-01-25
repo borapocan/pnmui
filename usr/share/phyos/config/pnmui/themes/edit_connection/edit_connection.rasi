@@ -58,7 +58,15 @@ inputbar {
     spacing:                     15px;
     margin:                      0px;
     background-color:            transparent;
-    children:                    [ "textbox-prompt-colon", "entry" ];
+    children:                    [ "prompt", "textbox-prompt-colon", "entry" ];
+}
+
+prompt {
+    enabled:                     true;
+    padding:                     10px;
+    border-radius:               0px;
+    background-color:            linear-gradient(to right, #C03FF2, #EEC2FF);
+    text-color:                  black;
 }
 
 textbox-prompt-colon {
