@@ -51,7 +51,6 @@ done
 
 # Main menu
 function menu() {
-
     echo -e "$option_1\n$option_2\n$option_3\n$option_4\n$option_5\n$option_6\n$option_7\n$option_8\n$option_9\n$option_10\n$option_11" | rofi -dmenu -theme ${main_theme};
 }
 
@@ -79,7 +78,6 @@ function edit_connection() {
 
 # OPTION 1-1
 function edit_connection_add() {
-
     echo -e "DSL\nEthernet\nInfiniBand\nWi-Fi\nBond\nBridge\nIP Tunnel\nTeam\nVeth\nWireGuard\n<Cancel>" | rofi -window-title "New Connection" -dmenu -theme ${edit_connection_add_theme};
 }
 
@@ -142,9 +140,7 @@ function activate_connection() {
 
 # OPTION 3
 function manually_actiavate_connection() {
-
     echo "Manual activation WPA_SUPPLICANT";
-
 }
 
 # OPTION 4
@@ -237,18 +233,15 @@ function list_add_neighbours() {
 
 # OPTION 9
 function list_all_available_interfaces() {
-
     tcpdump --list-interface | rofi -dmenu -theme ${main_theme} 1>/dev/null;
 }
 
 # OPTION 10
 function ssh_launcher() {
-
     rofi -show ssh -dmenu -theme ${main_theme};
 }
 
 chosen="$(menu)";
-
 case "${chosen}" in
 
     $option_1)
@@ -260,25 +253,21 @@ case "${chosen}" in
             *Back*)
 
                 exec "$0";
-
             ;;
 
             "***** Wired *****")
 
                 edit_connection;
-
             ;;
 
             "***** Wireless *****")
 
                 edit_connection;
-
             ;;
 
             *Add*)
 
                 network_type="$(edit_connection_add)";
-
                 case "${network_type}" in
 
                     "DSL")
@@ -385,7 +374,7 @@ case "${chosen}" in
                             ipv6_conf="<Automatic>"; addresses_ipv6="<Add...>";gateway_ipv6=""; dns_servers_ipv6="<Add...>";
                             search_domains_ipv6="<Add...>"; routing_ipv6="(No customm rules)";
 
-                            if [[ "${used_wired_interface}" =~ "${wireless_connection_interface[@]}" ]]; then
+                            if [[ "${used_wired_interface}" =~ "${wired_interfaces[@]}" ]]; then
 
                                 echo -e "Profile Name: ${profile_name}\nDevice:${device}\nClone MAC Address:\nMTU:${mtu}\nIPv4 CONFIGURATION ${ipv4_conf}\n<Hide>\nAddresses ${addresses}\nGateway:${gateway}\nDNS Servers ${dns_servers}\nSearch domains: ${search_domains}\nRouting: ${routing}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv4 addressing for this connection\nIPv6 CONFIGURATION ${ipv6_conf}\n<Hide>\nAddresses ${addresses_ipv6}\nGateway:${gateway_ipv6}\nDNS Servers ${dns_servers_ipv6}\nSearch domains: ${search_domains_ipv6}\nRouting: ${routing_ipv6}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv6 addressing for this connection\n[X] Automatically connect\n[X] Available to all users\n<OK>\n<Cancel>" | rofi -dmenu -theme ${edit_connection_theme};
 
@@ -443,6 +432,24 @@ case "${chosen}" in
 
             ;;
 
+            "***** Wired *****")
+
+                activate_connection;
+
+            ;;
+
+            "***** Wi-Fi *****")
+
+                activate_connection;
+
+            ;;
+
+            "***** USB Wi-Fi *****")
+
+                activate_connection;
+
+            ;;
+
             *Connected:*) # Activated connection
 
                 operation="$(echo -e "Deactivate\nBack" | rofi -dmenu -theme ${activate_connection_theme})";
@@ -494,31 +501,32 @@ case "${chosen}" in
 
                 else
                     # Check if it's in /etc/PhynetManager/system-connections/
-                    case `grep -r "ssid=${ssid}" "/etc/PhynetManager/system-connections" >/dev/null; echo $?` in
+                    system_connections_ssid_path="$(grep -r "ssid=${ssid}" "${system_connections_folder}" | cut -d ':' -f1)";
+                    system_connection_interface="$(grep -r "interface-name=" "${system_connections_ssid_path}" | cut -d '=' -f2)"
+
+                    case `grep -r "ssid=${ssid}" "${system_connections_folder}" >/dev/null; echo $?` in
 
                         0)  # In /etc/PhynetManager/system-connections/
                             # Check if ssid in /etc/wpa_supplicant/
                             case `grep -r "ssid=\"${ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
 
                                 0)  # In /etc/wpa_supplicant/
-
                                     WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
-                                    wpa_supplicant -B -i "${wireless_connection_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
-                                    dhclient "${wireless_connection_interface}" 2>/dev/null;
+                                    wpa_supplicant -B -i "${system_connection_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
+                                    dhclient "${system_connection_interface}" 2>/dev/null;
                                     # Can't run notify-send as root (dbus error)
                                     #DISPLAY=:0.0 su mrrobot -c "notify-send "'${ssid}':" -i '/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg' 'Connection Successful';"
                                     # Return to main menu after connection
                                     exec "$0";
-
                                 ;;
 
                                 1)  #Not in /etc/wpa_supplicant/
-                                    ssid_path="$(grep -r "ssid=${ssid}" "/etc/PhynetManager/system-connections" | cut -d ':' -f1)";
+                                    ssid_path="$(grep -r "ssid=${ssid}" "${system_connections_folder}" | cut -d ':' -f1)"};
                                     psk="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
                                     NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_XXXXXXXXX_PhynetManager.conf")";
                                     wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                                    wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
-                                    dhclient "${wireless_connection_interface}" &>/dev/null;
+                                    wpa_supplicant -B -i "${system_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
+                                    dhclient "${system_connection_interface}" &>/dev/null;
 
                                     exec "$0";
 
@@ -540,12 +548,11 @@ case "${chosen}" in
 
                             NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_XXXXXXXXX_PhynetManager.conf")";
                             wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                            ip link set "${wireless_connection_interface}" up;
-                            wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
+                            ip link set "${system_connection_interface}" up;
+                            wpa_supplicant -B -i "${system_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
                             #wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
                             # If user enters wrong password or any error occurs
                             if [ $? -eq 1 ]; then
-
                                 #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Wrong password";
                                 rm -rf ${NEW_WPA_CONF_FILE};
 
@@ -553,7 +560,7 @@ case "${chosen}" in
 
                             fi
 
-                            dhclient "${wireless_connection_interface}";
+                            dhclient "${system_connection_interface}";
                             #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Connection Successful";
                             # Add to system-connections (/etc/PhynetManager/system-connections)
                             exec "$0";
@@ -561,9 +568,7 @@ case "${chosen}" in
                         ;;
 
                          *) # Network error, unwanted action or user error
-
                             #notify-send "Connection Error:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Please try again with right informations";
-
                             exec "$0";
 
                         ;;
