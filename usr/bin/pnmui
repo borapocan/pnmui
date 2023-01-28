@@ -1,10 +1,9 @@
 #!/bin/sh
 
 # Import current theme
-
 DIR="$pOS_CONFIG_DIR/pnmui";
 source "$DIR/themes.config";
-main_theme="$themes/$style"; #/home/mrrobot/.local/src/pnmui
+main_theme="$themes/$style";
 edit_connection_theme="$DIR/themes/edit_connection/edit_connection.rasi";
 edit_connection_add_theme="$DIR/themes/edit_connection/edit_connection_add.rasi";
 activate_connection_theme="$DIR/themes/activate_connection/activate_connection.rasi";
@@ -29,21 +28,24 @@ option_10="SSH launcher";
 option_11="Exit";
 
 [ $UID -ne 0 ] && echo "Please run script as root..." && exit 1;
-[[ -s "${cache_path}/activate_connection" ]] && > "${cache_path}/activate_connection";
-[[ -s "${cache_path}/connected_ssids" ]] && > "${cache_path}/connected_ssids";
 
 network_interfaces=($(ls /sys/class/net));
 wireless_interfaces=();
+wireless_adapter_interfaces=();
 wired_interfaces=();
-connected_wireless_network="";
-connected_wired_network="";
-connected_wireless_adapter_network="";
+#connected_wireless_network="";
+#connected_wired_network="";
+#connected_wireless_adapter_network="";
 
 for interface in "${network_interfaces[@]}"; do
     if [[ "${interface}" =~ "en" ]] || [[ "${interface}" =~ "et" ]]; then
         wired_interfaces+=("${interface}");
     elif [[ "${interface}" =~ "wl" ]]; then
-        wireless_interfaces+=("${interface}")
+        if [[ "$(grep -r "DEVTYPE" "/sys/class/net/${interface}/device/uevent" | cut -d '=' -f2)" = "usb_interface" ]]; then
+            wireless_adapter_interfaces+=("${interface}");
+        else
+            wireless_interfaces+=("${interface}");
+        fi
     else
         continue;
     fi
@@ -71,7 +73,7 @@ function edit_connection() {
     echo -en "***** Wireless *****\n<Add>\n" >> ${cache_path}/connected_ssids;
     grep -R 'ssid=' /etc/PhynetManager/system-connections | cut -d '=' -f2 | sort | uniq >> "${cache_path}/connected_ssids";
     echo "<Back>" >> "${cache_path}/connected_ssids";
-    cat "${cache_path}/connected_ssids" > "${cache_path}/edit_connection"
+    cat "${cache_path}/connected_ssids" > "${cache_path}/edit_connection";
     cat "${cache_path}/connected_ssids" | rofi -window-title "Edit a connection" -dmenu -theme ${edit_connection_theme};
 
 }
@@ -90,9 +92,8 @@ function activate_connection() {
     [ -s "${cache_path}/activate_connection" ] && rm -rf "${cache_path}/activate_connection";
 
     echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids_ethernet";
-
+    no=1;
     for wired in "${wired_interfaces[@]}"; do
-        no=1;
         if [ "$(cat /sys/class/net/${wired}/carrier)" == "1" ]; then
             echo "Connected: Wired Connection ${no}" >> "${cache_path}/connected_ssids_ethernet";
             no=$((no+1));
@@ -102,36 +103,27 @@ function activate_connection() {
     done
 
     for wireless in "${wireless_interfaces[@]}"; do
-        if [[ "${wireless}" =~ "wlo" ]] || [[ "${wireless}" =~ "wlan" ]]; then
-            iw dev "${wireless}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
+        iw dev "${wireless}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "/${cache_path}/scanned_ssids_wifi";
+        state="$(iwconfig 2>/dev/null | grep "${wireless}" | grep -oP "(?<=ESSID:).*")";
+        if [[ "${state}" != "off/any" ]]; then
+            connected_network="$(echo ${state} | tr -d '"')";
+            sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
         fi
-    done
-
-    local state="$(iwconfig 2>/dev/null | grep -oP "(?<=ESSID:).*")";
-    if [[ "${state}" != "off/any" ]]; then
-
-        connected_network="$(iwconfig 2>/dev/null | grep -oP '(?<=ESSID:).*' | tr -d '"')";
-        sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
         sed -i "1s/^/***** Wi-Fi *****\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
+    done
 
-    else
-        if [[ "${wireless_interfaces[@]}" =~ "wlo" ]] || [[ "${wireless_interfaces[@]}" =~ "wlan" ]]; then
-            #echo "***** Wi-Fi *****" > "${cache_path}/scanned_ssids_wifi";
-            sed -i "1s/^/***** Wi-Fi *****\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
-        fi
-    fi
-
-    if [[ "${wireless_interfaces[@]}" =~ "wlp" ]]; then
-        echo "***** USB Wi-Fi *****" > "${cache_path}/scanned_ssids_adapter";
-    fi
-
-    for wireless in "${wireless_interfaces[@]}"; do
-        if [[ "${wireless}" =~ "wlp" ]]; then
-            iw dev "${wireless}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter" 2>/dev/null;
+    no=1;
+    for wireless_adapter in "${wireless_adapter_interfaces[@]}"; do
+        if [[ "${#wireless_adapter_interfaces[@]}" -eq 1 ]]; then
+            echo "***** USB Wi-Fi *****" > "${cache_path}/scanned_ssids_adapter";
+        iw dev "${wireless_adapter}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter";
+        else
+            echo "***** USB Wi-Fi ${no} *****" >> "${cache_path}/scanned_ssids_adapter";
+            no=$((no+1));
+            iw dev "${wireless_adapter}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter";
         fi
     done
 
-    #iw dev "${wireless_connection_interface}" scan | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' > "${cache_path}/scanned_ssids";
     cat "${cache_path}/connected_ssids_ethernet" "${cache_path}/scanned_ssids_wifi" "${cache_path}/scanned_ssids_adapter" > "${cache_path}/activate_connection" 2>/dev/null;
     echo "<Back>" >> "${cache_path}/activate_connection";
     sed -i 's|^[ \t]*||' "${cache_path}/activate_connection" 2>/dev/null;
@@ -548,8 +540,8 @@ case "${chosen}" in
 
                             NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_XXXXXXXXX_PhynetManager.conf")";
                             wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                            ip link set "${system_connection_interface}" up;
-                            wpa_supplicant -B -i "${system_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
+                            ip link set wlo1 up;
+                            wpa_supplicant -B -i wlo1 -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
                             #wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
                             # If user enters wrong password or any error occurs
                             if [ $? -eq 1 ]; then
@@ -560,7 +552,7 @@ case "${chosen}" in
 
                             fi
 
-                            dhclient "${system_connection_interface}";
+                            dhclient wlo1;
                             #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Connection Successful";
                             # Add to system-connections (/etc/PhynetManager/system-connections)
                             exec "$0";
