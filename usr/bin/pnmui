@@ -33,9 +33,6 @@ network_interfaces=($(ls /sys/class/net));
 wireless_interfaces=();
 wireless_adapter_interfaces=();
 wired_interfaces=();
-#connected_wireless_network="";
-#connected_wired_network="";
-#connected_wireless_adapter_network="";
 
 for interface in "${network_interfaces[@]}"; do
     if [[ "${interface}" =~ "en" ]] || [[ "${interface}" =~ "et" ]]; then
@@ -461,9 +458,8 @@ case "${chosen}" in
                         case ${prompt} in
 
                             "Yes")
-
                                 killall wpa_supplicant 2>/dev/null;
-                                #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Disconnected connection";
+                                dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Disconnected connection";
                                  exec "$0";
 
                             ;;
@@ -506,8 +502,7 @@ case "${chosen}" in
                                     WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
                                     wpa_supplicant -B -i "${system_connection_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
                                     dhclient "${system_connection_interface}" 2>/dev/null;
-                                    # Can't run notify-send as root (dbus error)
-                                    #DISPLAY=:0.0 su mrrobot -c "notify-send "'${ssid}':" -i '/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg' 'Connection Successful';"
+                                    dbus-launch notify-send "${ssid}" -i '/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg' 'Connection Successful';
                                     # Return to main menu after connection
                                     exec "$0";
                                 ;;
@@ -545,7 +540,7 @@ case "${chosen}" in
                             #wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
                             # If user enters wrong password or any error occurs
                             if [ $? -eq 1 ]; then
-                                #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Wrong password";
+                                dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Wrong password";
                                 rm -rf ${NEW_WPA_CONF_FILE};
 
                                 exec "$0";
@@ -553,14 +548,14 @@ case "${chosen}" in
                             fi
 
                             dhclient wlo1;
-                            #notify-send "${ssid}:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Connection Successful";
+                            dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Connection Successful";
                             # Add to system-connections (/etc/PhynetManager/system-connections)
                             exec "$0";
 
                         ;;
 
                          *) # Network error, unwanted action or user error
-                            #notify-send "Connection Error:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Please try again with right informations";
+                            dbus-launch notify-send "Connection Error:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Please try again with right informations";
                             exec "$0";
 
                         ;;
