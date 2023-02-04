@@ -15,6 +15,7 @@ connect_with_qr_code_theme="$DIR/themes/connect_with_qr_code/connect_with_qr_cod
 set_system_hostname_theme="$DIR/themes/set_system_hostname/set_system_hostname.rasi";
 access_points_theme="$DIR/themes/access_points/access_points.rasi";
 access_point_name_theme="$DIR/themes/access_points/access_point_name.rasi";
+access_point_password_theme="$DIR/themes/access_points/access_point_password.rasi";
 list_ports_theme="$DIR/themes/list_ports/list_ports.rasi";
 list_add_delete_neighbours_theme="$DIR/themes/list_add_delete_neighbours/list_add_delete_neighbours.rasi";
 ssh_launcher_theme="$DIR/themes/ssh_launcher/ssh_launcher.rasi";
@@ -46,6 +47,7 @@ network_interfaces=($(ls /sys/class/net));
 wireless_interfaces=();
 wireless_adapter_interfaces=();
 wired_interfaces=();
+bridges_interfaces=();
 wireless_interface="$(cat /proc/net/wireless | awk '{print $1}' | tail -1 | cut -d ':' -f1)";
 
 for interface in "${network_interfaces[@]}"; do
@@ -57,6 +59,8 @@ for interface in "${network_interfaces[@]}"; do
         else
             wireless_interfaces+=("${interface}");
         fi
+    elif [[ "${interface}" =~ "br" ]]; then
+        bridges_interfaces+=("${interface}");
     else
         continue;
     fi
@@ -86,7 +90,6 @@ function edit_connection() {
     echo "<Back>" >> "${cache_path}/connected_ssids";
     cat "${cache_path}/connected_ssids" > "${cache_path}/edit_connection";
     cat "${cache_path}/connected_ssids" | rofi -window-title "Edit a connection" -dmenu -theme ${edit_connection_theme};
-
 }
 
 # OPTION 1-1
@@ -196,9 +199,7 @@ function manually_activate_connection() {
                         esac
                     else
                         selected_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -window-title "Select an interface:" -dmenu -theme ${manually_activate_connection_theme})";
-
                     fi
-
                 ;;
                 "No")
                     exec "$0";
@@ -270,35 +271,56 @@ function access_point() {
     ap_option_6="Internet Sharing from the same Wifi Interface";
 
     ap_menu="$(echo -e "$ap_option_1\n$ap_option_2\n$ap_option_3\n$ap_option_4\n$ap_option_5\n$ap_option_6" | rofi -dmenu -theme ${access_points_theme})";
-    ls /tmp/create_ap*
 
     case "${ap_menu}" in
 
         $ap_option_1)
-
             first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
-            second_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
             access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
-            create_ap ${first_interface} ${second_interface} ${access_point_name} 2>&1 | grep "ERROR"
-            #&>/dev/null && disown 2>/dev/null;
+            (create_ap ${first_interface} ${second_interface} ${access_point_name} &>/dev/null &) && disown &>/dev/null;
             if [ $? -eq 0 ]; then
                 dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
             else
-                create_ap --no-virt ${first_interface} ${second_interface} ${access_point_name} &>/dev/null && disown 2>/dev/null;
-                if [ $? -eq 1 ]; then
-                    dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
-                fi
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
             fi
         ;;
 
         $ap_option_2)
-            echo "${ap_menu}"
+            first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            access_point_password="$(rofi -dmenu -password -theme ${access_point_password_theme})";
+            (create_ap ${first_interface} ${second_interface} ${access_point_name} ${access_point_password} &>/dev/null &) && disown &>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+            fi
         ;;
         $ap_option_3)
-            echo "${ap_menu}"
+            interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            access_point_password="$(rofi -dmenu -password -theme ${access_point_password_theme})";
+            (create_ap -n ${interface} ${access_point_name} ${access_point_password} &>/dev/null &) && disown &>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+            fi
         ;;
         $ap_option_4)
-            echo "${ap_menu}"
+            first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            access_point_password="$(rofi -dmenu -password -theme ${access_point_password_theme})";
+            (create_ap -m bridge ${first_interface} ${second_interface} ${access_point_name} ${access_point_password} &>/dev/null &) && disown &>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+            fi
+
         ;;
         $ap_option_5)
             echo "${ap_menu}"
@@ -519,32 +541,20 @@ case "${chosen}" in
                             case ${prompt} in
 
                                 "Yes")
-
                                     echo "edit_connection_delete function";
                                     exec "$0";
-
                                 ;;
 
                                 "No")
-
                                     exec "$0";
-
                                 ;;
-
                             esac
-
                         ;;
-
                     esac
-
                 fi
-
             ;;
-
         esac
-
         exec "$0";
-
     ;;
 
     $option_2)
@@ -629,9 +639,8 @@ case "${chosen}" in
                 if [[ -z "${ssid}" ]]; then
                     # If so, go back
                     exec "$0";
-
                 else
-                                        # Check if it's in /etc/PhynetManager/system-connections/
+                    # Check if it's in /etc/PhynetManager/system-connections/
                     case `grep -r "ssid=${ac_ssid}" "${system_connections_folder}" >/dev/null; echo $?` in
 
                         0)  # In /etc/PhynetManager/system-connections/
