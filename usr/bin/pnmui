@@ -8,10 +8,23 @@ edit_connection_theme="$DIR/themes/edit_connection/edit_connection.rasi";
 edit_connection_add_theme="$DIR/themes/edit_connection/edit_connection_add.rasi";
 activate_connection_theme="$DIR/themes/activate_connection/activate_connection.rasi";
 activate_connection_password_theme="$DIR/themes/activate_connection/activate_connection_password.rasi";
+manually_activate_connection_theme="$DIR/themes/manually_activate_connection/manually_activate_connection.rasi";
+manually_activate_connection_ssid_theme="$DIR/themes/manually_activate_connection/manually_activate_connection_ssid.rasi";
+manually_activate_connection_psk_theme="$DIR/themes/manually_activate_connection/manually_activate_connection_psk.rasi";
 connect_with_qr_code_theme="$DIR/themes/connect_with_qr_code/connect_with_qr_code.rasi";
 set_system_hostname_theme="$DIR/themes/set_system_hostname/set_system_hostname.rasi";
+access_points_theme="$DIR/themes/access_points/access_points.rasi";
+access_point_name_theme="$DIR/themes/access_points/access_point_name.rasi";
 list_ports_theme="$DIR/themes/list_ports/list_ports.rasi";
+list_add_delete_neighbours_theme="$DIR/themes/list_add_delete_neighbours/list_add_delete_neighbours.rasi";
+ssh_launcher_theme="$DIR/themes/ssh_launcher/ssh_launcher.rasi";
+ssh_launcher_user_theme="$DIR/themes/ssh_launcher/ssh_launcher_user.rasi";
+ssh_launcher_destination_theme="$DIR/themes/ssh_launcher/ssh_launcher_destination.rasi";
+ssh_launcher_password_theme="$DIR/themes/ssh_launcher/ssh_launcher_password.rasi";
+ssh_launcher_port_theme="$DIR/themes/ssh_launcher/ssh_launcher_port.rasi";
+ssh_launcher_identity_file_theme="$DIR/themes/ssh_launcher/ssh_launcher_identity_file.rasi";
 system_connections_folder="/etc/PhynetManager/system-connections";
+icons="$DIR/icons"
 cache_path="/var/lib/PhynetManager";
 mkdir -p "${cache_path}/qr_codes" 2>/dev/null;
 
@@ -33,6 +46,7 @@ network_interfaces=($(ls /sys/class/net));
 wireless_interfaces=();
 wireless_adapter_interfaces=();
 wired_interfaces=();
+wireless_interface="$(cat /proc/net/wireless | awk '{print $1}' | tail -1 | cut -d ':' -f1)";
 
 for interface in "${network_interfaces[@]}"; do
     if [[ "${interface}" =~ "en" ]] || [[ "${interface}" =~ "et" ]]; then
@@ -83,10 +97,10 @@ function edit_connection_add() {
 # OPTION 2
 function activate_connection() {
 
-    [ -s "${cache_path}/connected_ssids_ethernet" ] && rm -rf "${cache_path}/connected_ssids_ethernet";
-    [ -s "${cache_path}/scanned_ssids_wifi" ] && rm -rf "${cache_path}/scanned_ssids_wifi";
-    [ -s "${cache_path}/scanned_ssids_adapter" ] && rm -rf "${cache_path}/scanned_ssids_adapter";
-    [ -s "${cache_path}/activate_connection" ] && rm -rf "${cache_path}/activate_connection";
+    [ -s "${cache_path}/connected_ssids_ethernet" ] && rm -rf ${cache_path}/connected_ssids_ethernet;
+    [ -s "${cache_path}/scanned_ssids_wifi" ] && rm -rf ${cache_path}/scanned_ssids_wifi;
+    [ -s "${cache_path}/scanned_ssids_adapter" ] && rm -rf ${cache_path}/scanned_ssids_adapter*;
+    [ -s "${cache_path}/activate_connection" ] && rm -rf ${cache_path}/activate_connection;
 
     echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids_ethernet";
     no=1;
@@ -106,20 +120,34 @@ function activate_connection() {
             connected_network="$(echo ${state} | tr -d '"')";
             sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
         fi
+        sed -i "s/$/ Interface:${wireless}/" "${cache_path}/scanned_ssids_wifi";
         sed -i "1s/^/***** Wi-Fi *****\n/" "${cache_path}/scanned_ssids_wifi" 2>/dev/null;
     done
 
-    no=1;
-    for wireless_adapter in "${wireless_adapter_interfaces[@]}"; do
-        if [[ "${#wireless_adapter_interfaces[@]}" -eq 1 ]]; then
-            echo "***** USB Wi-Fi *****" > "${cache_path}/scanned_ssids_adapter";
-        iw dev "${wireless_adapter}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter";
-        else
-            echo "***** USB Wi-Fi ${no} *****" >> "${cache_path}/scanned_ssids_adapter";
-            no=$((no+1));
-            iw dev "${wireless_adapter}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter";
+    if [[ "${#wireless_adapter_interfaces[@]}" -eq 1 ]]; then
+        iw dev "${wireless_adapter_interfaces}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "/${cache_path}/scanned_ssids_adapter";
+        state="$(iwconfig 2>/dev/null | grep "${wireless_adapter_interfaces}" | grep -oP "(?<=ESSID:).*")";
+        if [[ "${state}" != "off/any" ]]; then
+            connected_network="$(echo ${state} | tr -d '"')";
+            sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_adapter" 2>/dev/null;
         fi
-    done
+        sed -i "s/$/ Interface:${wireless_adapter_interfaces}/" "${cache_path}/scanned_ssids_adapter";
+        sed -i "1s/^/***** USB Wi-Fi *****\n/" "${cache_path}/scanned_ssids_adapter" 2>/dev/null;
+    else
+        no=1;
+        for wireless_adapter in "${wireless_adapter_interfaces[@]}"; do
+            iw dev "${wireless_adapter}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "${cache_path}/scanned_ssids_adapter${no}";
+            state="$(iwconfig 2>/dev/null | grep "${wireless_adapter}" | grep -oP "(?<=ESSID:).*")";
+            if [[ "${state}" != "off/any" ]]; then
+                connected_network="$(echo ${state} | tr -d '"')";
+                sed -i "1s/^/Connected:${connected_network}\n/" "${cache_path}/scanned_ssids_adapter${no}" 2>/dev/null;
+            fi
+            sed -i "s/$/ Interface:${wireless_adapter}/" "${cache_path}/scanned_ssids_adapter${no}";
+            sed -i "1s/^/***** USB Wi-Fi ${no} *****\n/" "${cache_path}/scanned_ssids_adapter${no}" 2>/dev/null;
+            cat "${cache_path}/scanned_ssids_adapter${no}" >> "${cache_path}/scanned_ssids_adapter";
+            no=$((no+1));
+        done
+    fi
 
     cat "${cache_path}/connected_ssids_ethernet" "${cache_path}/scanned_ssids_wifi" "${cache_path}/scanned_ssids_adapter" > "${cache_path}/activate_connection" 2>/dev/null;
     echo "<Back>" >> "${cache_path}/activate_connection";
@@ -128,8 +156,64 @@ function activate_connection() {
 }
 
 # OPTION 3
-function manually_actiavate_connection() {
-    echo "Manual activation WPA_SUPPLICANT";
+function manually_activate_connection() {
+    local ssid="$(rofi -dmenu -theme ${manually_activate_connection_ssid_theme})";
+    local prompt_ssid="$(echo -e "Yes\nNo" | rofi -window-title "Are you sure?" -dmenu -theme ${manually_activate_connection_theme})";
+    case "${prompt_ssid}" in
+        "Yes")
+            local psk="$(rofi -dmenu -theme ${manually_activate_connection_psk_theme})";
+            local prompt_psk="$(echo -e "Yes\nNo" | rofi -window-title "Are you sure?" -dmenu -theme ${manually_activate_connection_theme})";
+            case "${prompt_psk}" in
+                "Yes")
+                     if [[ ${#psk} -lt 8 ]] || [[ ${#psk} -gt 63 ]]; then
+                        no_connection="$(echo -e "Back" | rofi \
+                            -window-title "Passphrase must be between 8 and 63 characters." \
+                            -theme-str "window {width: 520px;}" \
+		                    -theme-str "listview {columns: 1; lines: 5;}" \
+		                    -dmenu \
+		                    -markup-rows \
+                            -theme ${manually_activate_connection_theme})";
+                        exec "$0";
+                    fi
+                    if [ ${#wireless_adapter_interfaces[@]} -eq 0 ]; then
+                        case `grep -r "ssid=\"${ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
+                                0)  # In /etc/wpa_supplicant/
+                                    # NEW: Also check if ssid is new scan
+                                    WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
+                                    wpa_supplicant -B -i "${wireless_interfaces}" -c "${WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
+                                    dhclient "${wireless_interfaces}" 2>/dev/null;
+                                    dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
+                                    exec "$0";
+                                ;;
+                                1)  # Not in /etc/wpa_supplicant/
+                                    local NEW_WPA_CONF_FILE="$(mktemp -q "/tmp/wpa_supplicant_PhynetManager_${ssid}_XXXX.conf")";
+                                    wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
+                                    wpa_supplicant -B -i "${wireless_interfaces}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
+                                    dhclient "${wireless_interfaces}" 2>/dev/null;
+                                    dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
+                                    exec "$0";
+                                ;;
+                        esac
+                    else
+                        selected_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -window-title "Select an interface:" -dmenu -theme ${manually_activate_connection_theme})";
+
+                    fi
+
+                ;;
+                "No")
+                    exec "$0";
+                ;;
+                *)
+                    exec "$0";
+            esac
+        ;;
+        "No")
+            exec "$0";
+        ;;
+        *)
+            exec "$0";
+        ;;
+    esac
 }
 
 # OPTION 4
@@ -205,8 +289,53 @@ function set_system_hostname() {
 # OPTION 6
 function access_point() {
     # Create an access point for any interface to share your connection
-    echo "Access Point";
-}
+    ap_option_1="Access Point with No Passphrase (Open Network)";
+    ap_option_2="WPA + WPA2 Passphrase";
+    ap_option_3="Access Point without Internet Sharing";
+    ap_option_4="Bridged Internet Sharing";
+    ap_option_5="Bridged Internet Sharing (Pre-configured Bridge Interface)";
+    ap_option_6="Internet Sharing from the same Wifi Interface";
+
+    ap_menu="$(echo -e "$ap_option_1\n$ap_option_2\n$ap_option_3\n$ap_option_4\n$ap_option_5\n$ap_option_6" | rofi -dmenu -theme ${access_points_theme})";
+    ls /tmp/create_ap*
+
+    case "${ap_menu}" in
+
+        $ap_option_1)
+
+            first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            create_ap ${first_interface} ${second_interface} ${access_point_name} 2>&1 | grep "ERROR"
+            #&>/dev/null && disown 2>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                create_ap --no-virt ${first_interface} ${second_interface} ${access_point_name} &>/dev/null && disown 2>/dev/null;
+                if [ $? -eq 1 ]; then
+                    dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+                fi
+            fi
+        ;;
+
+        $ap_option_2)
+            echo "${ap_menu}"
+        ;;
+        $ap_option_3)
+            echo "${ap_menu}"
+        ;;
+        $ap_option_4)
+            echo "${ap_menu}"
+        ;;
+        $ap_option_5)
+            echo "${ap_menu}"
+        ;;
+        $ap_option_6)
+            echo "${ap_menu}"
+        ;;
+    esac
+
+    }
 
 # OPTION 7
 function list_ports() {
@@ -215,9 +344,9 @@ function list_ports() {
 }
 
 # OPTION 8
-function list_add_neighbours() {
+function list_add_delete_neighbours() {
     # Show neighbours and add close IPs optionally
-    echo "neigh";
+    ip neigh | rofi -dmenu -theme ${list_add_delete_neighbours_theme};
 }
 
 # OPTION 9
@@ -227,7 +356,60 @@ function list_all_available_interfaces() {
 
 # OPTION 10
 function ssh_launcher() {
-    rofi -show ssh -dmenu -theme ${main_theme};
+
+    ssh_option_1="Password Authentication";
+    ssh_option_2="Public Key Authentication"
+    #ssh_option_=""
+    #ssh_option_=""
+    ssh_menu="$(echo -e "$ssh_option_1\n$ssh_option_2" | rofi -dmenu -theme ${ssh_launcher_theme})";
+
+    case "${ssh_menu}" in
+
+        $ssh_option_1)
+
+            local user="$(rofi -dmenu -theme ${ssh_launcher_user_theme})";
+            local destination="$(rofi -dmenu -theme ${ssh_launcher_destination_theme})";
+            local password="$(rofi -dmenu -password -theme ${ssh_launcher_password_theme} 2>/dev/null)";
+            local default_port="Default port (22)";
+            local prompt_port="$(echo -e "$default_port\nSpecify a port number" | rofi -window-title "Do you want to use the default port?" -dmenu -theme ${ssh_launcher_theme})";
+            case "${prompt_port}" in
+                $default_port)
+                    sshpass -p "${password}" ssh "${user}@${destination}";
+                ;;
+                "Specify a port number")
+                    local specified_port="$(rofi -dmenu -theme ${ssh_launcher_port_theme})";
+                    sshpass -p "${password}" ssh "${user}@${destination} -p ${specified_port}";
+                    exec "$0";
+                ;;
+                *)
+                    exec "$0";
+                ;;
+            esac
+        ;;
+
+        $ssh_option_2)
+
+            local user="$(rofi -dmenu -theme ${ssh_launcher_user_theme})";
+            local destination="$(rofi -dmenu -theme ${ssh_launcher_destination_theme})";
+            local identity_file="$(rofi window-title "Specify the path of the identity file" -dmenu -theme ${ssh_launcher_theme})";
+            local default_port="Default port (22)";
+            local prompt_port="$(echo -e "$default_port\nSpecify a port number" | rofi -window-title "Do you want to use the default port?" -dmenu -theme ${ssh_launcher_theme})";
+            case "${prompt_port}" in
+                $default_port)
+                    ssh -i "${identity_file}" "${user}@${destination}";
+                    exec "$0";
+                ;;
+                "Specify a port number")
+                    local specified_port="$(rofi -dmenu -theme ${ssh_launcher_port_theme})";
+                    ssh -i "${identity_file}" "${user}@${destination} -p ${specified_port}";
+                    exec "$0";
+                ;;
+                *)
+                    exec "$0";
+                ;;
+            esac
+        ;;
+    esac
 }
 
 chosen="$(menu)";
@@ -240,17 +422,14 @@ case "${chosen}" in
         case "${ssid}" in
 
             *Back*)
-
                 exec "$0";
             ;;
 
             "***** Wired *****")
-
                 edit_connection;
             ;;
 
             "***** Wireless *****")
-
                 edit_connection;
             ;;
 
@@ -326,9 +505,7 @@ case "${chosen}" in
                     ;;
 
                     "<Cancel>")
-
                         exec "$0";
-
                     ;;
 
                 esac
@@ -412,6 +589,9 @@ case "${chosen}" in
     $option_2)
 
         ssid="$(activate_connection)";
+        ac_ssid="$(echo ${ssid} | awk -F 'Interface:' '{print $1}' | xargs)";
+        ac_interface="$(echo ${ssid} | awk -F 'Interface:' '{print $2}' | xargs)";
+
 
         case "${ssid}" in
 
@@ -433,7 +613,7 @@ case "${chosen}" in
 
             ;;
 
-            "***** USB Wi-Fi *****")
+            *USB*)
 
                 activate_connection;
 
@@ -458,8 +638,10 @@ case "${chosen}" in
                         case ${prompt} in
 
                             "Yes")
-                                killall wpa_supplicant 2>/dev/null;
-                                dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Disconnected connection";
+                                #killall wpa_supplicant 2>/dev/null;
+                                deactivate_pid="$(ps aux | grep wpa_supplicant | grep ${ac_interface} | awk '{print $2}')";
+                                kill $deactivate_pid;
+                                dbus-launch notify-send "$(echo ${ssid} | grep -oP '(?<=Connected:)\w+')" -i "${icons}/network-wireless-connected-100.svg" "Disconnected connection";
                                  exec "$0";
 
                             ;;
@@ -488,35 +670,30 @@ case "${chosen}" in
                     exec "$0";
 
                 else
-                    # Check if it's in /etc/PhynetManager/system-connections/
-                    system_connections_ssid_path="$(grep -r "ssid=${ssid}" "${system_connections_folder}" | cut -d ':' -f1)";
-                    system_connection_interface="$(grep -r "interface-name=" "${system_connections_ssid_path}" | cut -d '=' -f2)"
-
-                    case `grep -r "ssid=${ssid}" "${system_connections_folder}" >/dev/null; echo $?` in
+                                        # Check if it's in /etc/PhynetManager/system-connections/
+                    case `grep -r "ssid=${ac_ssid}" "${system_connections_folder}" >/dev/null; echo $?` in
 
                         0)  # In /etc/PhynetManager/system-connections/
                             # Check if ssid in /etc/wpa_supplicant/
-                            case `grep -r "ssid=\"${ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
+                            case `grep -r "ssid=\"${ac_ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
 
                                 0)  # In /etc/wpa_supplicant/
-                                    WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
-                                    wpa_supplicant -B -i "${system_connection_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
-                                    dhclient "${system_connection_interface}" 2>/dev/null;
-                                    dbus-launch notify-send "${ssid}" -i '/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg' 'Connection Successful';
+                                    WPA_CONF_FILE="$(grep -r "${ac_ssid}" "/etc/wpa_supplicant" | cut -d ':' -f1)";
+                                    wpa_supplicant -B -i "${ac_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
+                                    dhclient "${ac_interface}" 2>/dev/null;
+                                    dbus-launch notify-send "${ac_ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
                                     # Return to main menu after connection
                                     exec "$0";
                                 ;;
 
                                 1)  #Not in /etc/wpa_supplicant/
-                                    ssid_path="$(grep -r "ssid=${ssid}" "${system_connections_folder}" | cut -d ':' -f1)"};
+                                    ssid_path="$(grep -r "ssid=${ac_ssid}" "${system_connections_folder}" | cut -d ':' -f1)"};
                                     psk="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
-                                    NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_XXXXXXXXX_PhynetManager.conf")";
-                                    wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                                    wpa_supplicant -B -i "${system_connection_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
+                                    NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_${ac_ssid}_XXXXXXXXX_PhynetManager.conf")";
+                                    wpa_passphrase "${ac_ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
+                                    wpa_supplicant -B -i "${ac_interface}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null;
                                     dhclient "${system_connection_interface}" &>/dev/null;
-
                                     exec "$0";
-
                                 ;;
 
                             esac
@@ -533,29 +710,27 @@ case "${chosen}" in
 
                             fi
 
-                            NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_XXXXXXXXX_PhynetManager.conf")";
-                            wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                            ip link set wlo1 up;
-                            wpa_supplicant -B -i wlo1 -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
-                            #wpa_supplicant -B -i "${wireless_connection_interface}" -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
+                            NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_${ac_ssid}_XXXXXXXXX_PhynetManager.conf")";
+                            wpa_passphrase "${ac_ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
+                            ip link set "${ac_interface}" up;
+                            wpa_supplicant -B -i "${ac_interface}" -c "${NEW_WPA_CONF_FILE}" 2>/dev/null;
                             # If user enters wrong password or any error occurs
                             if [ $? -eq 1 ]; then
-                                dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Wrong password";
+                                dbus-launch notify-send "${ssid}" -i "${ac_ssid}/network-wireless-connected-100.svg" "Wrong password";
                                 rm -rf ${NEW_WPA_CONF_FILE};
-
                                 exec "$0";
 
                             fi
 
-                            dhclient wlo1;
-                            dbus-launch notify-send "${ssid}" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Connection Successful";
+                            dhclient ${ac_interface};
+                            dbus-launch notify-send "${ssid}" -i "${ac_ssid}/network-wireless-connected-100.svg" "Connection Successful";
                             # Add to system-connections (/etc/PhynetManager/system-connections)
                             exec "$0";
 
                         ;;
 
                          *) # Network error, unwanted action or user error
-                            dbus-launch notify-send "Connection Error:" -i "/usr/share/icons/Fancy-Light-Icons/devices/16/network-wireless-connected-100.svg" "Please try again with right informations";
+                            dbus-launch notify-send "Connection Error:" -i "${ac_ssid}/network-wireless-connected-100.svg" "Please try again with right informations";
                             exec "$0";
 
                         ;;
@@ -573,71 +748,47 @@ case "${chosen}" in
     ;;
 
      $option_3)
-
-        edit_connection;
-
+        manually_activate_connection;
         exec "$0";
-
     ;;
 
     $option_4)
-
         connect_with_QR_Code;
-
         exec "$0";
-
     ;;
 
     $option_5)
-
         set_system_hostname;
-
         exec "$0";
-
     ;;
 
     $option_6)
-
         access_point;
-
         exec "$0";
-
     ;;
 
      $option_7)
-
-         list_ports;
-
+        list_ports;
+        exec "$0";
     ;;
 
     $option_8)
-
-        activate_connection;
-
+        list_add_delete_neighbours;
         exec "$0";
-
     ;;
 
     $option_9)
-
         list_all_available_interfaces;
-
         exec "$0";
-
     ;;
 
     $option_10)
-
         ssh_launcher;
-
         exec "$0";
-
     ;;
 
     $option_11)
-
         exit 0;
-
     ;;
 
 esac
