@@ -219,10 +219,8 @@ function manually_activate_connection() {
 # OPTION 4
 function connect_with_QR_Code() {
 
-    local SSID="$(iwconfig 2>/dev/null | grep -oP "(?<=ESSID:).*" | tr -d '"')";
-
+    local SSID="$(iwconfig "${wireless_interface}" 2>/dev/null | grep -oP "(?<=ESSID:).*" | tr -d '"' | xargs)";
     if [[ "${SSID}" == "off/any" ]]; then
-
         no_connection="$(echo -e "Back" | rofi \
         -window-title "No connection" \
         -theme-str "window {width: 520px;}" \
@@ -232,45 +230,20 @@ function connect_with_QR_Code() {
         -theme ${connect_with_qr_code_theme})";
 
         case "${no_connection}" in
-
             "Back")
-
                 exec "$0";
-
             ;;
-
         esac
-
     fi
 
-    local ssid_path="$(grep -r "ssid=${ssid}" "/etc/PhynetManager/system-connections" | cut -d ':' -f1)";
+    local ssid_path="$(grep -r "ssid=${SSID}" "/etc/PhynetManager/system-connections" | cut -d ':' -f1)";
     local PSK="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
     local Security="WPA";
-    local RANDOM_QR_FILE="$(mktemp -q '${cache_path}/qr_codes/qr_code_${SSID}_XXXX.png')";
+    local RANDOM_QR_FILE="$(mktemp -q "${cache_path}/qr_codes/qr_code_XXXXXXXXXX.png")";
     qrencode -t png "WIFI:T:${Security};S:${SSID};P:${PSK};;" -o $RANDOM_QR_FILE;
-
-    case `grep -oP 'url\("\K[^")]+' "$pOS_CONFIG_DIR/pnmui/themes/connect_with_qr_code/connect_with_qr_code.rasi" >/dev/null; echo "$?"` in
-
-        0)  # Can be blank or filled with path inside background image: url(" ")
-            url="$(grep -oP 'url\("\K[^")]+'  $pOS_CONFIG_DIR/pnmui/themes/connect_with_qr_code/connect_with_qr_code.rasi)";
-        ;;
-
-        1)  # No string or whitespace inside background image: url(" ")
-            echo "Fill with ${RANDOM_QR_FILE}";
-        ;;
-
-    esac
-
-    #OLD_URL="$(grep -oP 'url\("\K[^")]+' ./connect_with_qr_code.rasi)";
-    #NEW_URL="$(realpath ${RANDOM_QR_FILE})"
-    #perl -pi -e 's|"${OLD_URL}"|"${NEW_URL}"|g' $connect_with_qr_code_theme;
-    #echo "qrfile: $RANDOM_QR_FILE";
-    #echo "old file: $OLD_URL";
-    #echo "new file: $NEW_URL";
-    #rofi \
-    #    -dmenu \
-    #    -theme ./style-2.rasi;
-
+    OLD_URL="$(grep 'background-image:' "$DIR/themes/connect_with_qr_code/connect_with_qr_code.rasi" | cut -d ':' -f2 | awk '{$1=$1;print}')";
+    NEW_URL="url("\"${RANDOM_QR_FILE}\"", height);"
+    sed -i "s|$OLD_URL|$NEW_URL|g" "$DIR/themes/connect_with_qr_code/connect_with_qr_code.rasi"
 	echo -e "SSID:$SSID\nSecurity:$Security\nPSK:$PSK" | rofi \
         -window-title "Share your connection" \
         -theme-str "window {width: 520px;}" \
@@ -439,69 +412,58 @@ case "${chosen}" in
                 case "${network_type}" in
 
                     "DSL")
-
+                        #Create DSL interface and UI
                         echo 1;
-
                     ;;
 
                     "Ethernet")
-
+                        #Create Ethernet interface and UI
                         echo 2;
-
                     ;;
 
                     "InfiniBand")
-
+                        #Create InfiniBand interface and UI
                         echo 3;
-
                     ;;
 
                     "Wi-Fi")
-
+                        #Create Wi-Fi interface and UI
                         echo 4;
-
                     ;;
 
                     "Bond")
-
+                        #Create Bond interface and UI
                         echo 5;
-
                     ;;
 
                     "Bridge")
-
+                        #Create Bridge interface and UI
                         echo 6;
-
                     ;;
 
                     "IP Tunnel")
-
+                        #Create IP Tunnel interface and UI
                         echo 7;
-
                     ;;
 
                     "Team")
-
+                        #Create Team interface and UI
                         echo 8;
-
                     ;;
 
                     "Veth")
-
+                        #Create Veth interface and UI
                         echo 9;
-
                     ;;
 
                     "VLAN")
-
+                        #Create Veth interface and UI
                         echo 10;
-
                     ;;
 
                     "WireGuard")
-
+                        #Create WireGuard interface and UI
                         echo 11;
-
                     ;;
 
                     "<Cancel>")
@@ -574,7 +536,6 @@ case "${chosen}" in
                         ;;
 
                     esac
-
 
                 fi
 
