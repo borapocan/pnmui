@@ -28,7 +28,6 @@ system_connections_folder="/etc/PhynetManager/system-connections";
 icons="$DIR/icons"
 cache_path="/var/lib/PhynetManager";
 mkdir -p "${cache_path}/qr_codes" 2>/dev/null;
-
 option_1="Edit a connection";
 option_2="Activate an connection";
 option_3="Manually activate an connection";
@@ -40,16 +39,13 @@ option_8="List/add neighbours";
 option_9="List all available interfaces";
 option_10="SSH launcher";
 option_11="Exit";
-
 [ $UID -ne 0 ] && echo "Please run script as root..." && exit 1;
-
 network_interfaces=($(ls /sys/class/net));
 wireless_interfaces=();
 wireless_adapter_interfaces=();
 wired_interfaces=();
-bridges_interfaces=();
+bridge_interfaces=();
 wireless_interface="$(cat /proc/net/wireless | awk '{print $1}' | tail -1 | cut -d ':' -f1)";
-
 for interface in "${network_interfaces[@]}"; do
     if [[ "${interface}" =~ "en" ]] || [[ "${interface}" =~ "et" ]]; then
         wired_interfaces+=("${interface}");
@@ -60,51 +56,57 @@ for interface in "${network_interfaces[@]}"; do
             wireless_interfaces+=("${interface}");
         fi
     elif [[ "${interface}" =~ "br" ]]; then
-        bridges_interfaces+=("${interface}");
+        bridge_interfaces+=("${interface}");
     else
         continue;
     fi
 done
-
 # Main menu
 function menu() {
     echo -e "$option_1\n$option_2\n$option_3\n$option_4\n$option_5\n$option_6\n$option_7\n$option_8\n$option_9\n$option_10\n$option_11" | rofi -dmenu -theme ${main_theme};
 }
-
 # OPTION 1
 function edit_connection() {
-
     [ -s "${cache_path}/connected_ssids" ] && rm -rf "${cache_path}/connected_ssids";
-    echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids";
+    echo -en "***** Wired *****\n<Add>\n" > "${cache_path}/connected_ssids";
+    wired_no=1;
     for wired in "${wired_interfaces[@]}"; do
-        no=1;
         if [ "$(cat /sys/class/net/${wired}/carrier)" == "1" ]; then
-            echo "Connected: Wired Connection ${no}" >> "${cache_path}/connected_ssids";
-            no=$((no+1));
+            echo "Connected: Wired Connection ${wired_no}" >> "${cache_path}/connected_ssids";
         else
-            echo "Wired Connection ${no}" >> "${cache_path}/connected_ssids" 2>/dev/null;
+            echo "Wired Connection ${wired_no}" >> "${cache_path}/connected_ssids" 2>/dev/null;
         fi
+        wired_no=$((wired_no+1));
     done
     echo -en "***** Wireless *****\n<Add>\n" >> ${cache_path}/connected_ssids;
     grep -R 'ssid=' /etc/PhynetManager/system-connections | cut -d '=' -f2 | sort | uniq >> "${cache_path}/connected_ssids";
+    if [[ "${#bridge_interfaces[@]}" -gt 0 ]]; then
+        echo -en "***** Bridge *****\n<Add>" >> "${cache_path}/connected_ssids";
+        bridge_no=1;
+        for bridge in "${bridge_interfaces[@]}"; do
+            if [ "$(cat /sys/class/net/${bridge}/carrier)" == "1" ]; then
+                echo "Connected: Bridge Connection ${bridge_no}" >> "${cache_path}/connected_ssids";
+            else
+                echo "Bridge Connection ${bridge_no}" >> "${cache_path}/connected_ssids" 2>/dev/null;
+            fi
+            bridge_no=$((bridge_no+1));
+        done
+    fi
     echo "<Back>" >> "${cache_path}/connected_ssids";
     cat "${cache_path}/connected_ssids" > "${cache_path}/edit_connection";
     cat "${cache_path}/connected_ssids" | rofi -window-title "Edit a connection" -dmenu -theme ${edit_connection_theme};
 }
-
 # OPTION 1-1
 function edit_connection_add() {
+    # List of network types for adding network
     echo -e "DSL\nEthernet\nInfiniBand\nWi-Fi\nBond\nBridge\nIP Tunnel\nTeam\nVeth\nWireGuard\n<Cancel>" | rofi -window-title "New Connection" -dmenu -theme ${edit_connection_add_theme};
 }
-
 # OPTION 2
 function activate_connection() {
-
     [ -s "${cache_path}/connected_ssids_ethernet" ] && rm -rf ${cache_path}/connected_ssids_ethernet;
     [ -s "${cache_path}/scanned_ssids_wifi" ] && rm -rf ${cache_path}/scanned_ssids_wifi;
     [ -s "${cache_path}/scanned_ssids_adapter" ] && rm -rf ${cache_path}/scanned_ssids_adapter*;
     [ -s "${cache_path}/activate_connection" ] && rm -rf ${cache_path}/activate_connection;
-
     echo -en "***** Wired *****\n" > "${cache_path}/connected_ssids_ethernet";
     no=1;
     for wired in "${wired_interfaces[@]}"; do
@@ -115,7 +117,6 @@ function activate_connection() {
             echo "Wired Connection ${no}" >> "${cache_path}/connected_ssids_ethernet" 2>/dev/null;
         fi
     done
-
     for wireless in "${wireless_interfaces[@]}"; do
         iw dev "${wireless}" scan 2>/dev/null | grep -oP "(?<=SSID:).*" | sort | uniq | awk 'NF' >> "/${cache_path}/scanned_ssids_wifi";
         state="$(iwconfig 2>/dev/null | grep "${wireless}" | grep -oP "(?<=ESSID:).*")";
@@ -151,15 +152,14 @@ function activate_connection() {
             no=$((no+1));
         done
     fi
-
     cat "${cache_path}/connected_ssids_ethernet" "${cache_path}/scanned_ssids_wifi" "${cache_path}/scanned_ssids_adapter" > "${cache_path}/activate_connection" 2>/dev/null;
     echo "<Back>" >> "${cache_path}/activate_connection";
     sed -i 's|^[ \t]*||' "${cache_path}/activate_connection" 2>/dev/null;
     cat "${cache_path}/activate_connection" | rofi -window-title "Activate a connection" -dmenu -theme ${activate_connection_theme};
 }
-
 # OPTION 3
 function manually_activate_connection() {
+    # Creating connection manually
     local ssid="$(rofi -dmenu -theme ${manually_activate_connection_ssid_theme})";
     local prompt_ssid="$(echo -e "Yes\nNo" | rofi -window-title "Are you sure?" -dmenu -theme ${manually_activate_connection_theme})";
     case "${prompt_ssid}" in
@@ -180,22 +180,22 @@ function manually_activate_connection() {
                     fi
                     if [ ${#wireless_adapter_interfaces[@]} -eq 0 ]; then
                         case `grep -r "ssid=\"${ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
-                                0)  # In /etc/wpa_supplicant/
-                                    # NEW: Also check if ssid is new scan
-                                    WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
-                                    wpa_supplicant -B -i "${wireless_interfaces}" -c "${WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
-                                    dhclient "${wireless_interfaces}" 2>/dev/null;
-                                    dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
-                                    exec "$0";
-                                ;;
-                                1)  # Not in /etc/wpa_supplicant/
-                                    local NEW_WPA_CONF_FILE="$(mktemp -q "/tmp/wpa_supplicant_PhynetManager_${ssid}_XXXX.conf")";
-                                    wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
-                                    wpa_supplicant -B -i "${wireless_interfaces}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
-                                    dhclient "${wireless_interfaces}" 2>/dev/null;
-                                    dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
-                                    exec "$0";
-                                ;;
+                            0)  # In /etc/wpa_supplicant/
+                                # NEW: Also check if ssid is new scan
+                                WPA_CONF_FILE="$(grep -r "${ssid}" "/etc/wpa_supplicant" | awk "{print $1}" | cut -d ':' -f1)";
+                                wpa_supplicant -B -i "${wireless_interfaces}" -c "${WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
+                                dhclient "${wireless_interfaces}" 2>/dev/null;
+                                dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
+                                exec "$0";
+                            ;;
+                            1)  # Not in /etc/wpa_supplicant/
+                                local NEW_WPA_CONF_FILE="$(mktemp -q "/tmp/wpa_supplicant_PhynetManager_${ssid}_XXXX.conf")";
+                                wpa_passphrase "${ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
+                                wpa_supplicant -B -i "${wireless_interfaces}" -c "${NEW_WPA_CONF_FILE}" &>/dev/null; disown &>/dev/null;
+                                dhclient "${wireless_interfaces}" 2>/dev/null;
+                                dbus-launch notify-send "${ssid}" -i "${icons}/network-wireless-connected-100.svg" 'Connection Successful';
+                                exec "$0";
+                            ;;
                         esac
                     else
                         selected_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -window-title "Select an interface:" -dmenu -theme ${manually_activate_connection_theme})";
@@ -206,6 +206,7 @@ function manually_activate_connection() {
                 ;;
                 *)
                     exec "$0";
+                ;;
             esac
         ;;
         "No")
@@ -216,10 +217,8 @@ function manually_activate_connection() {
         ;;
     esac
 }
-
 # OPTION 4
 function connect_with_QR_Code() {
-
     local SSID="$(iwconfig "${wireless_interface}" 2>/dev/null | grep -oP "(?<=ESSID:).*" | tr -d '"' | xargs)";
     if [[ "${SSID}" == "off/any" ]]; then
         no_connection="$(echo -e "Back" | rofi \
@@ -229,14 +228,12 @@ function connect_with_QR_Code() {
 		-dmenu \
 		-markup-rows \
         -theme ${connect_with_qr_code_theme})";
-
         case "${no_connection}" in
             "Back")
                 exec "$0";
             ;;
         esac
     fi
-
     local ssid_path="$(grep -r "ssid=${SSID}" "/etc/PhynetManager/system-connections" | cut -d ':' -f1)";
     local PSK="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
     local Security="WPA";
@@ -253,27 +250,26 @@ function connect_with_QR_Code() {
 		-markup-rows \
 		-theme ${connect_with_qr_code_theme};
 }
-
 # OPTION 5
 function set_system_hostname() {
     # Assign to variable and check if empty and then redirect output
-    rofi -dmenu -theme ${set_system_hostname_theme} 1> /etc/hostname;
+    hostname="$(rofi -dmenu -theme ${set_system_hostname_theme})";
+    if [[ "${#hostname}" -lt 1 ]]; then
+        exec "$0";
+    fi
+    echo "${hostname}" > /etc/hostname;
 }
-
 # OPTION 6
 function access_point() {
-    # Create an access point for any interface to share your connection
+    # Create an access point for any interface to share connection
     ap_option_1="Access Point with No Passphrase (Open Network)";
     ap_option_2="WPA + WPA2 Passphrase";
     ap_option_3="Access Point without Internet Sharing";
     ap_option_4="Bridged Internet Sharing";
     ap_option_5="Bridged Internet Sharing (Pre-configured Bridge Interface)";
     ap_option_6="Internet Sharing from the same Wifi Interface";
-
     ap_menu="$(echo -e "$ap_option_1\n$ap_option_2\n$ap_option_3\n$ap_option_4\n$ap_option_5\n$ap_option_6" | rofi -dmenu -theme ${access_points_theme})";
-
     case "${ap_menu}" in
-
         $ap_option_1)
             first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
             second_interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
@@ -285,7 +281,6 @@ function access_point() {
                 dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
             fi
         ;;
-
         $ap_option_2)
             first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
             second_interface="$(echo "${wired_interfaces[@]} ${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
@@ -320,48 +315,58 @@ function access_point() {
             else
                 dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
             fi
-
         ;;
         $ap_option_5)
-            echo "${ap_menu}"
+            first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${bridge_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            access_point_password="$(rofi -dmenu -password -theme ${access_point_password_theme})";
+            (create_ap -m bridge ${first_interface} ${second_interface} ${access_point_name} ${access_point_password} &>/dev/null &) && disown &>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+            fi
         ;;
         $ap_option_6)
-            echo "${ap_menu}"
+            first_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            second_interface="$(echo "${wireless_interfaces[@]} ${wireless_adapter_interfaces[@]}" | tr " " "\n" | rofi -dmenu -theme ${access_points_theme})";
+            access_point_name="$(rofi -dmenu -theme ${access_point_name_theme})";
+            access_point_password="$(rofi -dmenu -password -theme ${access_point_password_theme})";
+            (create_ap ${first_interface} ${second_interface} ${access_point_name} ${access_point_password} &>/dev/null &) && disown &>/dev/null;
+            if [ $? -eq 0 ]; then
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point created successfully';
+            else
+                dbus-launch notify-send "${access_point_name}" -i "${icons}/network-wireless-connected-100.svg" 'Access Point association failed';
+            fi
         ;;
     esac
-
-    }
-
+}
 # OPTION 7
 function list_ports() {
     # List ports
-    echo -e "Open Ports\nListening Ports\nClosed Ports" | rofi -dmenu -theme ${main_theme};
+    echo -e "Listening Ports\nEstablished Ports\nClosed Ports" | rofi -dmenu -theme ${main_theme};
 }
-
 # OPTION 8
 function list_add_delete_neighbours() {
     # Show neighbours and add close IPs optionally
     ip neigh | rofi -dmenu -theme ${list_add_delete_neighbours_theme};
 }
-
 # OPTION 9
 function list_all_available_interfaces() {
+    # Print  the  list of the network interfaces available on the system
     tcpdump --list-interface | rofi -dmenu -theme ${main_theme} 1>/dev/null;
 }
-
 # OPTION 10
 function ssh_launcher() {
-
+    # Methods for SSH authentication
     ssh_option_1="Password Authentication";
     ssh_option_2="Public Key Authentication"
     #ssh_option_=""
     #ssh_option_=""
     ssh_menu="$(echo -e "$ssh_option_1\n$ssh_option_2" | rofi -dmenu -theme ${ssh_launcher_theme})";
-
     case "${ssh_menu}" in
-
         $ssh_option_1)
-
             local user="$(rofi -dmenu -theme ${ssh_launcher_user_theme})";
             local destination="$(rofi -dmenu -theme ${ssh_launcher_destination_theme})";
             local password="$(rofi -dmenu -password -theme ${ssh_launcher_password_theme} 2>/dev/null)";
@@ -381,9 +386,7 @@ function ssh_launcher() {
                 ;;
             esac
         ;;
-
         $ssh_option_2)
-
             local user="$(rofi -dmenu -theme ${ssh_launcher_user_theme})";
             local destination="$(rofi -dmenu -theme ${ssh_launcher_destination_theme})";
             local identity_file="$(rofi window-title "Specify the path of the identity file" -dmenu -theme ${ssh_launcher_theme})";
@@ -406,115 +409,84 @@ function ssh_launcher() {
         ;;
     esac
 }
-
+# Menu selection
 chosen="$(menu)";
 case "${chosen}" in
-
     $option_1)
-
         ssid="$(edit_connection)";
-
         case "${ssid}" in
-
             *Back*)
                 exec "$0";
             ;;
-
             "***** Wired *****")
                 edit_connection;
             ;;
-
             "***** Wireless *****")
                 edit_connection;
             ;;
-
             *Add*)
-
                 network_type="$(edit_connection_add)";
                 case "${network_type}" in
-
                     "DSL")
                         #Create DSL interface and UI
                         echo 1;
                     ;;
-
                     "Ethernet")
                         #Create Ethernet interface and UI
                         echo 2;
                     ;;
-
                     "InfiniBand")
                         #Create InfiniBand interface and UI
                         echo 3;
                     ;;
-
                     "Wi-Fi")
                         #Create Wi-Fi interface and UI
                         echo 4;
                     ;;
-
                     "Bond")
                         #Create Bond interface and UI
                         echo 5;
                     ;;
-
                     "Bridge")
                         #Create Bridge interface and UI
                         echo 6;
                     ;;
-
                     "IP Tunnel")
                         #Create IP Tunnel interface and UI
                         echo 7;
                     ;;
-
                     "Team")
                         #Create Team interface and UI
                         echo 8;
                     ;;
-
                     "Veth")
                         #Create Veth interface and UI
                         echo 9;
                     ;;
-
                     "VLAN")
                         #Create Veth interface and UI
                         echo 10;
                     ;;
-
                     "WireGuard")
                         #Create WireGuard interface and UI
                         echo 11;
                     ;;
-
                     "<Cancel>")
                         exec "$0";
                     ;;
-
                 esac
-
             ;;
-
             *)  # Check if any other button,key or unknown option is selected
                 if [[ -z "${ssid}" ]]; then
                     # If so, go back
                     exec "$0";
-
                 else
-
                     option="$(echo -e "<Edit Connection>\n<Delete>\n<Back>" | rofi -dmenu -theme ${edit_connection_theme})";
-
                     case "${option}" in
-
                         *Back*)
-
                             exec "$0";
-
                         ;;
-
                         *Edit*)
-
                             ethernet=($(sed -n '/Wired/,/Wireless/p' /var/lib/PhynetManager/edit_connection));
                             profile_name="${ssid}";
                             used_wired_interface="$(ip -br l | awk '$1 !~ "lo|vir|wl" { print $1}')";
@@ -525,26 +497,17 @@ case "${chosen}" in
                             search_domains_ipv6="<Add...>"; routing_ipv6="(No customm rules)";
 
                             if [[ "${used_wired_interface}" =~ "${wired_interfaces[@]}" ]]; then
-
                                 echo -e "Profile Name: ${profile_name}\nDevice:${device}\nClone MAC Address:\nMTU:${mtu}\nIPv4 CONFIGURATION ${ipv4_conf}\n<Hide>\nAddresses ${addresses}\nGateway:${gateway}\nDNS Servers ${dns_servers}\nSearch domains: ${search_domains}\nRouting: ${routing}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv4 addressing for this connection\nIPv6 CONFIGURATION ${ipv6_conf}\n<Hide>\nAddresses ${addresses_ipv6}\nGateway:${gateway_ipv6}\nDNS Servers ${dns_servers_ipv6}\nSearch domains: ${search_domains_ipv6}\nRouting: ${routing_ipv6}\n<Edit>\n[ ] Never use this network for default route\n [ ] Ignore automatically obtained routes\n[ ] Ignore automatically obtained DNS parameters\n[ ] Require IPv6 addressing for this connection\n[X] Automatically connect\n[X] Available to all users\n<OK>\n<Cancel>" | rofi -dmenu -theme ${edit_connection_theme};
-
                             fi
-
                             exec "$0";
-
                         ;;
-
                         *Delete*)
-
                             prompt="$(echo -e "Yes\nNo" | rofi -window-title "Are you sure?" -dmenu -theme ${edit_connection_theme})";
-
                             case ${prompt} in
-
                                 "Yes")
                                     echo "edit_connection_delete function";
                                     exec "$0";
                                 ;;
-
                                 "No")
                                     exec "$0";
                                 ;;
@@ -556,85 +519,48 @@ case "${chosen}" in
         esac
         exec "$0";
     ;;
-
     $option_2)
-
         ssid="$(activate_connection)";
         ac_ssid="$(echo ${ssid} | awk -F 'Interface:' '{print $1}' | xargs)";
         ac_interface="$(echo ${ssid} | awk -F 'Interface:' '{print $2}' | xargs)";
-
-
         case "${ssid}" in
-
              *Back*)
-
                 exec "$0";
-
             ;;
-
             "***** Wired *****")
-
                 activate_connection;
-
             ;;
-
             "***** Wi-Fi *****")
-
                 activate_connection;
-
             ;;
-
             *USB*)
-
                 activate_connection;
-
             ;;
-
-            *Connected:*) # Activated connection
-
+            *Connected:*)
+                # Activated connection
                 operation="$(echo -e "Deactivate\nBack" | rofi -dmenu -theme ${activate_connection_theme})";
-
                 case ${operation} in
-
                     "Back")
-
                         exec "$0";
-
                     ;;
-
                     "Deactivate")
-
                         prompt="$(echo -e "Yes\nNo" | rofi -window-title "Are you sure?" -dmenu -theme ${activate_connection_theme})";
-
                         case ${prompt} in
-
                             "Yes")
-                                #killall wpa_supplicant 2>/dev/null;
                                 deactivate_pid="$(ps aux | grep wpa_supplicant | grep ${ac_interface} | awk '{print $2}')";
                                 kill $deactivate_pid;
                                 dbus-launch notify-send "$(echo ${ssid} | grep -oP '(?<=Connected:)\w+')" -i "${icons}/network-wireless-connected-100.svg" "Disconnected connection";
                                  exec "$0";
-
                             ;;
-
                             "No")
-
                                 exec "$0";
-
                             ;;
-
                         esac
-
                         exec "$0";
-
                     ;;
-
                 esac
-
                 exec "$0";
-
             ;;
-
             *)  # Check if any other button,key or unknown option is selected
                 if [[ -z "${ssid}" ]]; then
                     # If so, go back
@@ -642,11 +568,9 @@ case "${chosen}" in
                 else
                     # Check if it's in /etc/PhynetManager/system-connections/
                     case `grep -r "ssid=${ac_ssid}" "${system_connections_folder}" >/dev/null; echo $?` in
-
                         0)  # In /etc/PhynetManager/system-connections/
                             # Check if ssid in /etc/wpa_supplicant/
                             case `grep -r "ssid=\"${ac_ssid}\"" "/etc/wpa_supplicant" >/dev/null; echo $?` in
-
                                 0)  # In /etc/wpa_supplicant/
                                     WPA_CONF_FILE="$(grep -r "${ac_ssid}" "/etc/wpa_supplicant" | cut -d ':' -f1)";
                                     wpa_supplicant -B -i "${ac_interface}" -c "${WPA_CONF_FILE}" &>/dev/null && disown &>/dev/null;
@@ -655,7 +579,6 @@ case "${chosen}" in
                                     # Return to main menu after connection
                                     exec "$0";
                                 ;;
-
                                 1)  #Not in /etc/wpa_supplicant/
                                     ssid_path="$(grep -r "ssid=${ac_ssid}" "${system_connections_folder}" | cut -d ':' -f1)"};
                                     psk="$(grep "psk=" "${ssid_path}" | cut -d '=' -f2)";
@@ -665,21 +588,15 @@ case "${chosen}" in
                                     dhclient "${system_connection_interface}" &>/dev/null;
                                     exec "$0";
                                 ;;
-
                             esac
-
                         ;;
-
                         1)  # Not in /etc/PhynetManager/system-connections/
                             # Network not found (Creating new one)
                             psk="$(rofi -dmenu -password -theme ${activate_connection_password_theme} 2>/dev/null)";
                             # Check for interruption or mid cancel
                             if [ $? -eq 1 ]; then
-
                                 exec "$0";
-
                             fi
-
                             NEW_WPA_CONF_FILE="$(mktemp -q "/etc/wpa_supplicant/wpa_supplicant_${ac_ssid}_XXXXXXXXX_PhynetManager.conf")";
                             wpa_passphrase "${ac_ssid}" "${psk}" > "${NEW_WPA_CONF_FILE}";
                             ip link set "${ac_interface}" up;
@@ -689,78 +606,70 @@ case "${chosen}" in
                                 dbus-launch notify-send "${ssid}" -i "${ac_ssid}/network-wireless-connected-100.svg" "Wrong password";
                                 rm -rf ${NEW_WPA_CONF_FILE};
                                 exec "$0";
-
                             fi
-
                             dhclient ${ac_interface};
                             dbus-launch notify-send "${ssid}" -i "${ac_ssid}/network-wireless-connected-100.svg" "Connection Successful";
                             # Add to system-connections (/etc/PhynetManager/system-connections)
                             exec "$0";
-
                         ;;
-
                          *) # Network error, unwanted action or user error
                             dbus-launch notify-send "Connection Error:" -i "${ac_ssid}/network-wireless-connected-100.svg" "Please try again with right informations";
                             exec "$0";
-
                         ;;
-
                     esac
-
                 fi
-
             ;;
-
         esac
-
         exec "$0";
-
     ;;
-
      $option_3)
         manually_activate_connection;
         exec "$0";
     ;;
-
     $option_4)
         connect_with_QR_Code;
         exec "$0";
     ;;
-
     $option_5)
         set_system_hostname;
         exec "$0";
     ;;
-
     $option_6)
         access_point;
         exec "$0";
     ;;
-
      $option_7)
-        list_ports;
+        port_option="$(list_ports)";
+        case "${port_option}" in
+            "Listening Ports")
+                echo -en "$(ss -tulpn | grep LISTEN)\n<Back>" | rofi -dmenu -theme ${list_ports_theme};
+                exec "$0";
+            ;;
+            "Establised Ports")
+                echo -en "$(ss -tupn state ESTABLISHED)\n<Back>" | rofi -dmenu -theme ${list_ports_theme};
+                exec "$0";
+            ;;
+            "Closed Ports")
+                echo -en "$(ss -tupn | grep CLOSE)\n<Back>" | rofi -dmenu -theme ${list_ports_theme};
+                exec "$0";
+            ;;
+        esac
         exec "$0";
     ;;
-
     $option_8)
         list_add_delete_neighbours;
         exec "$0";
     ;;
-
     $option_9)
         list_all_available_interfaces;
         exec "$0";
     ;;
-
     $option_10)
         ssh_launcher;
         exec "$0";
     ;;
-
     $option_11)
         exit 0;
     ;;
-
 esac
-
 # Done(In Binary:01000100 01101111 01101110 01100101).It's a joke(No it's not). :)
